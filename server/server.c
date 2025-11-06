@@ -1,37 +1,13 @@
 // server.c - simple TCP menu-driven server
-// Compile on Linux: gcc -o server server.c
+// Compile on Linux: gcc -o server server.c Auth/auth.c Process/process.c Process/CustBillProcess.c Process/IntopBillProcess.c Billing/CustomerBilling.c Billing/InteroperatorBilling.c -lpthread
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <errno.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/stat.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <ctype.h>
-#include <pthread.h>
-#include "Header/process.h"
-#include "Header/auth.h"
-#include "Header/CustBillProcess.h"
-#include "Header/IntopBillProcess.h"
+#include "Header/server.h"
 
-#define PORT 12345
-#define BACKLOG 5
-#define BUFSIZE 1024
+/* ============================================================
+   Socket Communication Helpers
+   ============================================================ */
 
-// Structure to pass client info to thread
-typedef struct {
-    int client_fd;
-    struct sockaddr_in client_addr;
-} ClientInfo;
-
-// Forward declaration
-void handle_client(int client_fd);
-
-static int sendall(int sock, const char *buf, size_t len) {
+int sendall(int sock, const char *buf, size_t len) {
     size_t total = 0;
     while (total < len) {
         ssize_t n = send(sock, buf + total, len - total, 0);
@@ -41,15 +17,13 @@ static int sendall(int sock, const char *buf, size_t len) {
     return 0;
 }
 
-// send a null-terminated string with a terminating newline
-static int send_line(int sock, const char *s) {
+int send_line(int sock, const char *s) {
     char tmp[BUFSIZE];
     snprintf(tmp, sizeof(tmp), "%s\n", s);
     return sendall(sock, tmp, strlen(tmp));
 }
 
-// receive one line (up to BUFSIZE-1) into buf; returns length or -1 on error/close
-static ssize_t recv_line(int sock, char *buf, size_t bufsize) {
+ssize_t recv_line(int sock, char *buf, size_t bufsize) {
     size_t idx = 0;
     while (idx + 1 < bufsize) {
         char c;
@@ -63,7 +37,10 @@ static ssize_t recv_line(int sock, char *buf, size_t bufsize) {
     return (ssize_t)idx;
 }
 
-// Thread wrapper function for handling clients
+/* ============================================================
+   Client Thread Handling
+   ============================================================ */
+
 void* client_thread(void* arg) {
     ClientInfo *info = (ClientInfo *)arg;
     int client_fd = info->client_fd;
@@ -81,9 +58,13 @@ void* client_thread(void* arg) {
     return NULL;
 }
 
+/* ============================================================
+   Client Request Handler (State Machine)
+   ============================================================ */
+
 void handle_client(int client_fd) {
     char buf[BUFSIZE];
-    enum {MAIN, SECOND, BILLING, CUST_BILL, INTER_BILL} state = MAIN;
+    MenuState state = MAIN;
     int connected = 1;
     char logged_in_user[EMAIL_MAX] = {0}; // Track logged-in user email
     char user_output_dir[256] = {0}; // User-specific output directory
@@ -292,10 +273,17 @@ void handle_client(int client_fd) {
     close(client_fd);
 }
 
+/* ============================================================
+   Main Server Loop
+   ============================================================ */
+
 int main(void) {
     int sockfd, client_fd;
     struct sockaddr_in serv_addr, client_addr;
     socklen_t sin_size = sizeof(client_addr);
+
+    // Ignore SIGPIPE signal - prevents server crash when client disconnects during write
+    signal(SIGPIPE, SIG_IGN);
 
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd == -1) {

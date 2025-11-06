@@ -75,7 +75,10 @@ int main(int argc, char **argv) {
         // if the server asks for input (choice or credentials)
             if (strstr(buf, "Enter choice") != NULL || 
                 strstr(buf, "Enter email") != NULL || 
-                strstr(buf, "Enter password") != NULL) {
+                strstr(buf, "Enter password") != NULL ||
+                strstr(buf, "Enter MSISDN") != NULL ||
+                strstr(buf, "Enter operator name") != NULL ||
+                strstr(buf, "Press Enter") != NULL) {
                 // read from stdin; if server asked for password, disable echo
                 char input[256];
                 input[0] = '\0';

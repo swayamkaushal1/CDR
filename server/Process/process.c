@@ -1,23 +1,13 @@
-// process.c - CDR processing helpers
-// Implement processCDRdata which runs two functions concurrently using pthreads
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <pthread.h>
-#include <time.h>
-#include <sys/types.h>
-#include <sys/socket.h>
+// process.c - CDR processing coordinator
+// Spawns parallel threads for customer and interoperator billing processing
 
 #include "../Header/process.h"
-#include "../Header/CustBillProcess.h"
-#include "../Header/IntopBillProcess.h"
 
-#define BUFSIZE 1024
+/* ============================================================
+   Socket Communication Helpers
+   ============================================================ */
 
-// send all helper for a socket fd
-static int sendall_fd(int sock, const char *buf, size_t len) {
+int sendall_fd(int sock, const char *buf, size_t len) {
     size_t total = 0;
     while (total < len) {
         ssize_t n = send(sock, buf + total, len - total, 0);
@@ -27,14 +17,16 @@ static int sendall_fd(int sock, const char *buf, size_t len) {
     return 0;
 }
 
-// send a line (null terminated) with newline appended
-static int send_line_fd(int sock, const char *s) {
+int send_line_fd(int sock, const char *s) {
     char tmp[BUFSIZE];
     snprintf(tmp, sizeof(tmp), "%s\n", s);
     return sendall_fd(sock, tmp, strlen(tmp));
 }
 
-// Public API: run two processing functions in parallel and notify client when done
+/* ============================================================
+   CDR Processing Coordinator
+   ============================================================ */
+
 int processCDRdata(int client_fd, const char *output_dir) {
     pthread_t t1, t2;
     int rc;

@@ -80,31 +80,36 @@ void display_customer_billing_file(int client_fd, const char *filename) {
     
     if (!file) {
         char errMsg[256];
-        snprintf(errMsg, sizeof(errMsg), "Error opening file: %s", strerror(errno));
-        send_line_fd(client_fd, errMsg);
-        send_line_fd(client_fd, "Note: Please process the CDR data first (option 1 from secondary menu).");
+        snprintf(errMsg, sizeof(errMsg), "Error opening file: %s\n", strerror(errno));
+        send(client_fd, errMsg, strlen(errMsg), 0);
+        snprintf(errMsg, sizeof(errMsg), "Filename: %s\n", filename);
+        send(client_fd, errMsg, strlen(errMsg), 0);
+        snprintf(errMsg, sizeof(errMsg), "Note: Please process the CDR data first (option 1 from secondary menu).\n");
+        send(client_fd, errMsg, strlen(errMsg), 0);
         return;
     }
 
-    send_line_fd(client_fd, "=== Customer Billing File Content ===");
+    char header[] = "=== Customer Billing File Content ===\n";
+    send(client_fd, header, strlen(header), 0);
     
-    // Read and send file contents line by line with small delays
+    // Read and send file contents line by line
     char line[1024];
     int lineCount = 0;
     while (fgets(line, sizeof(line), file)) {
-        line[strcspn(line, "\r\n")] = 0; // remove newline
-        if (send_line_fd(client_fd, line) < 0) {
+        // fgets keeps the newline, so send as-is
+        ssize_t sent = send(client_fd, line, strlen(line), 0);
+        if (sent <= 0) {
             // Send failed, client may have disconnected
-            break;
+            fclose(file);
+            return;
         }
         lineCount++;
         
-        // Add tiny delay every 10 lines to prevent buffer overflow
-        if (lineCount % 10 == 0) {
-            usleep(10000); // 10ms delay
-        }
+        // Add small delay every line to ensure client can keep up
+        usleep(1000); // 1ms delay per line
     }
     
-    send_line_fd(client_fd, "=== End of File ===");
+    char footer[] = "=== End of File ===\n";
+    send(client_fd, footer, strlen(footer), 0);
     fclose(file);
 }
