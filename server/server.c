@@ -1,6 +1,36 @@
-// server.c - simple TCP menu-driven server
-// Compile on Linux: gcc -o server server.c Auth/auth.c Process/process.c Process/CustBillProcess.c Process/IntopBillProcess.c Billing/CustomerBilling.c Billing/InteroperatorBilling.c -lpthread
-
+/*
+ * ----------------------------------------------------------------------------
+ *  File Name   : server.c
+ *  Author      : Swayam Kaushal, Soham Bose
+ *  Created On  : November 6, 2025
+ *  Version     : 1.0
+ *
+ *  Description : Multi-threaded TCP server for telecom billing system.
+ *                Handles client connections and provides a menu-driven interface
+ *                for user authentication, CDR processing, and billing operations.
+ *                Supports customer and inter-operator billing functionalities.
+ *
+ *  Features    :
+ *    - Signup/Login with email and password validation
+ *    - CDR data processing with concurrent worker threads
+ *    - Search and display billing records (CB.txt, IOSB.txt)
+ *    - Graceful client disconnection after each operation
+ *    - Logging of all major events (auth, menu choices, file operations)
+ *
+ *  Compilation : gcc -o server server.c Auth/auth.c Log/Log.c Process/process.c \
+ *                Process/CustBillProcess.c Process/IntopBillProcess.c \
+ *                Billing/CustomerBilling.c Billing/InteroperatorBilling.c -lpthread
+ *
+ *  License     : © 2025 Swayam Kaushal, Soham Bose. All rights reserved.
+ *                This source code is intended for internal use only.
+ *                Unauthorized redistribution or modification is prohibited.
+ *
+ *  Notes       :
+ *    - Ensure required modules and header files are present before compilation.
+ *    - Server listens on defined PORT and handles multiple clients via threads.
+ *    - SIGPIPE is ignored to prevent crashes on client disconnection.
+ * ----------------------------------------------------------------------------
+ */
 #include "Header/server.h"
 
 /* ============================================================
@@ -200,7 +230,8 @@ void handle_client(int client_fd) {
             send_line(client_fd, "1) Search by msisdn no");
             send_line(client_fd, "2) Print file content of CB.txt");
             send_line(client_fd, "3) Back");
-            send_line(client_fd, "Enter choice (1-3):");
+            send_line(client_fd, "4) Exit");
+            send_line(client_fd, "Enter choice (1-4):");
             if (recv_line(client_fd, buf, sizeof(buf)) <= 0) break;
             if (strcmp(buf, "1") == 0) {
                 // Search by MSISDN
@@ -216,19 +247,20 @@ void handle_client(int client_fd) {
                     snprintf(cb_path, sizeof(cb_path), "%s/CB.txt", user_output_dir);
                     search_msisdn(client_fd, cb_path, msisdn);
                 }
-                // After search, disconnect client as per requirement
-                send_line(client_fd, "Operation completed. Disconnecting...");
-                connected = 0; // disconnect client, server continues
+                // After search, go back to SECOND menu
+                state = SECOND;
             } else if (strcmp(buf, "2") == 0) {
                 // Display CB.txt content
                 char cb_path[300];
                 snprintf(cb_path, sizeof(cb_path), "%s/CB.txt", user_output_dir);
                 display_customer_billing_file(client_fd, cb_path);
-                // After displaying, disconnect client as per requirement
-                send_line(client_fd, "Operation completed. Disconnecting...");
-                connected = 0; // disconnect client, server continues
+                // After displaying, go back to SECOND menu
+                state = SECOND;
             } else if (strcmp(buf, "3") == 0) {
                 state = BILLING;
+            } else if (strcmp(buf, "4") == 0) {
+                send_line(client_fd, "Goodbye. Closing connection.");
+                connected = 0; // disconnect client, server continues
             } else {
                 send_line(client_fd, "Invalid choice. Try again.");
             }
@@ -237,7 +269,8 @@ void handle_client(int client_fd) {
             send_line(client_fd, "1) Search by operator name");
             send_line(client_fd, "2) Print file content of IOSB.txt");
             send_line(client_fd, "3) Back");
-            send_line(client_fd, "Enter choice (1-3):");
+            send_line(client_fd, "4) Exit");
+            send_line(client_fd, "Enter choice (1-4):");
             if (recv_line(client_fd, buf, sizeof(buf)) <= 0) break;
             if (strcmp(buf, "1") == 0) {
                 // Search by operator name
@@ -252,19 +285,20 @@ void handle_client(int client_fd) {
                     snprintf(iosb_path, sizeof(iosb_path), "%s/IOSB.txt", user_output_dir);
                     search_operator(client_fd, iosb_path, buf);
                 }
-                // After search, disconnect client as per requirement
-                send_line(client_fd, "Operation completed. Disconnecting...");
-                connected = 0; // disconnect client, server continues
+                // After search, go back to SECOND menu
+                state = SECOND;
             } else if (strcmp(buf, "2") == 0) {
                 // Display IOSB.txt content
                 char iosb_path[300];
                 snprintf(iosb_path, sizeof(iosb_path), "%s/IOSB.txt", user_output_dir);
                 display_interoperator_billing_file(client_fd, iosb_path);
-                // After displaying, disconnect client as per requirement
-                send_line(client_fd, "Operation completed. Disconnecting...");
-                connected = 0; // disconnect client, server continues
+                // After displaying, go back to SECOND menu
+                state = SECOND;
             } else if (strcmp(buf, "3") == 0) {
                 state = BILLING;
+            } else if (strcmp(buf, "4") == 0) {
+                send_line(client_fd, "Goodbye. Closing connection.");
+                connected = 0; // disconnect client, server continues
             } else {
                 send_line(client_fd, "Invalid choice. Try again.");
             }
