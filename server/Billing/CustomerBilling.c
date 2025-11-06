@@ -104,9 +104,7 @@ void search_msisdn(int client_fd, const char *filename, long msisdn) {
 
 
 void display_customer_billing_file(int client_fd, const char *filename) {
-    FILE *file = fopen(filename, "r");
-    char line[2048];
-    int line_count = 0;
+    FILE *file = fopen(filename, "rb");
 
     if (!file) {
         char msg[512];
@@ -116,44 +114,14 @@ void display_customer_billing_file(int client_fd, const char *filename) {
         send_line_fd(client_fd, msg);
         return;
     }
-
-    send_line_fd(client_fd, "=== Customer Billing File Content ===");
-
-    while (fgets(line, sizeof(line), file)) {
-        // Remove trailing newline/carriage return
-        line[strcspn(line, "\r\n")] = 0;
-        
-        // Send line using send_line_fd (which adds \n)
-        if (send_line_fd(client_fd, line) != 0) {
-            // Client disconnected
-            fclose(file);
-            return;
-        }
-        
-        line_count++;
-        // Add a small delay every 10 lines to prevent socket buffer overflow
-        if (line_count % 10 == 0) {
-            usleep(10000); // 10ms delay
-        }
-    }
-
-    send_line_fd(client_fd, "=== End of File ===");
-    fclose(file);
-    
-    // Now send the file transfer marker and transfer the file
-    send_line_fd(client_fd, "FILE_TRANSFER_START:CB.txt");
-    
-    // Reopen file for binary transfer
-    file = fopen(filename, "rb");
-    if (!file) {
-        send_line_fd(client_fd, "FILE_TRANSFER_ERROR");
-        return;
-    }
     
     // Get file size
     fseek(file, 0, SEEK_END);
     long filesize = ftell(file);
     rewind(file);
+    
+    // Send file transfer marker and transfer the file directly
+    send_line_fd(client_fd, "FILE_TRANSFER_START:CB.txt");
     
     // Send file size
     char size_msg[64];
