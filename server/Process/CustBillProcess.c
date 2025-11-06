@@ -1,29 +1,38 @@
 // CustBillProcess.c - Customer billing CDR processing
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <errno.h>
 #include "../Header/CustBillProcess.h"
 
-// Hash table for customer records
+/* ============================================================
+   Static Variables
+   ============================================================ */
+
 static Customer *hashTable[HASH_SIZE];
 static int totalRecords = 0;
 
-// Hash function - simple modulo hash
-static unsigned int hashFunction(long key) {
+/* ============================================================
+   Hash Function
+   ============================================================ */
+
+unsigned int hashFunction(long key)
+{
     return (unsigned int)(key % HASH_SIZE);
 }
 
-// Create a new customer entry
-static Customer *createCustomer(long msisdn, const char *operatorName, int operatorCode) {
+/* ============================================================
+   Customer Management Functions
+   ============================================================ */
+
+Customer* createCustomer(long msisdn, const char *operatorName, int operatorCode)
+{
     Customer *cust = (Customer *)malloc(sizeof(Customer));
     if (!cust) return NULL;
     
+    // Initialize customer data
     cust->msisdn = msisdn;
     strncpy(cust->operatorName, operatorName, sizeof(cust->operatorName) - 1);
     cust->operatorName[sizeof(cust->operatorName) - 1] = '\0';
     cust->operatorCode = operatorCode;
     
+    // Initialize all counters to zero
     cust->inVoiceWithin = cust->outVoiceWithin = 0;
     cust->inVoiceOutside = cust->outVoiceOutside = 0;
     cust->smsInWithin = cust->smsOutWithin = 0;
@@ -34,19 +43,19 @@ static Customer *createCustomer(long msisdn, const char *operatorName, int opera
     return cust;
 }
 
-// Get or create a customer in the hash map
-static Customer *getCustomer(long msisdn, const char *operatorName, int operatorCode) {
+Customer* getCustomer(long msisdn, const char *operatorName, int operatorCode)
+{
     unsigned int index = hashFunction(msisdn);
     Customer *curr = hashTable[index];
     
-    // Search for existing customer
+    // Search for existing customer in chain
     while (curr) {
         if (curr->msisdn == msisdn)
             return curr;
         curr = curr->next;
     }
     
-    // Create new customer and add to chain
+    // Customer not found - create new one and add to hash table
     Customer *newCust = createCustomer(msisdn, operatorName, operatorCode);
     if (newCust) {
         newCust->next = hashTable[index];
@@ -56,8 +65,40 @@ static Customer *getCustomer(long msisdn, const char *operatorName, int operator
     return newCust;
 }
 
-// Process CDR file and aggregate customer data
-static void processCDRFile(const char *filename) {
+/* ============================================================
+   Helper Functions (Internal)
+   ============================================================ */
+
+static void updateCustomerStats(Customer *cust, const char *callType, 
+                                int sameOperator, float duration, 
+                                float download, float upload)
+{
+    if (strcmp(callType, "MOC") == 0) {
+        sameOperator ? (cust->outVoiceWithin += duration) 
+                    : (cust->outVoiceOutside += duration);
+    }
+    else if (strcmp(callType, "MTC") == 0) {
+        sameOperator ? (cust->inVoiceWithin += duration) 
+                    : (cust->inVoiceOutside += duration);
+    }
+    else if (strcmp(callType, "SMS-MO") == 0) {
+        sameOperator ? cust->smsOutWithin++ : cust->smsOutOutside++;
+    }
+    else if (strcmp(callType, "SMS-MT") == 0) {
+        sameOperator ? cust->smsInWithin++ : cust->smsInOutside++;
+    }
+    else if (strcmp(callType, "GPRS") == 0) {
+        cust->mbDownload += download;
+        cust->mbUpload += upload;
+    }
+}
+
+/* ============================================================
+   CDR File Processing
+   ============================================================ */
+
+void processCDRFile(const char *filename)
+{
     FILE *fp = fopen(filename, "r");
     if (!fp) {
         fprintf(stderr, "Error opening CDR file '%s': %s\n", filename, strerror(errno));
@@ -71,60 +112,35 @@ static void processCDRFile(const char *filename) {
         // Remove newline characters
         line[strcspn(line, "\r\n")] = 0;
         
+        // Initialize CDR fields
         long msisdn = 0, thirdPartyMsisdn = 0;
         char opName[64] = {0}, callType[16] = {0};
         int opCode = 0, thirdPartyOpCode = 0;
         float duration = 0, download = 0, upload = 0;
         
-        // Parse CDR line: MSISDN|OPERATOR NAME|OPERATOR CODE|CALL TYPE|DURATION|DOWNLOAD|UPLOAD|THIRD PARTY MSISDN|THIRD PARTY OPERATOR
+        // Parse CDR line (9 fields expected)
         int matched = sscanf(line, "%ld|%63[^|]|%d|%15[^|]|%f|%f|%f|%ld|%d",
                             &msisdn, opName, &opCode, callType,
                             &duration, &download, &upload,
                             &thirdPartyMsisdn, &thirdPartyOpCode);
         
+        // Handle edge case: GPRS records with empty third party MSISDN (||)
         if (matched < 9) {
-            // Handle GPRS with missing third party MSISDN (two consecutive ||)
             matched = sscanf(line, "%ld|%63[^|]|%d|%15[^|]|%f|%f|%f||%d",
                             &msisdn, opName, &opCode, callType,
                             &duration, &download, &upload, &thirdPartyOpCode);
-            if (matched < 8)
-                continue; // skip invalid lines
+            if (matched < 8) continue; // Skip invalid lines
         }
         
+        // Get or create customer record
         Customer *cust = getCustomer(msisdn, opName, opCode);
         if (!cust) continue;
         
+        // Determine if call is within same operator
         int sameOperator = (opCode == thirdPartyOpCode);
         
-        // Update based on call type
-        if (strcmp(callType, "MOC") == 0) {
-            if (sameOperator)
-                cust->outVoiceWithin += duration;
-            else
-                cust->outVoiceOutside += duration;
-        }
-        else if (strcmp(callType, "MTC") == 0) {
-            if (sameOperator)
-                cust->inVoiceWithin += duration;
-            else
-                cust->inVoiceOutside += duration;
-        }
-        else if (strcmp(callType, "SMS-MO") == 0) {
-            if (sameOperator)
-                cust->smsOutWithin++;
-            else
-                cust->smsOutOutside++;
-        }
-        else if (strcmp(callType, "SMS-MT") == 0) {
-            if (sameOperator)
-                cust->smsInWithin++;
-            else
-                cust->smsInOutside++;
-        }
-        else if (strcmp(callType, "GPRS") == 0) {
-            cust->mbDownload += download;
-            cust->mbUpload += upload;
-        }
+        // Update customer statistics
+        updateCustomerStats(cust, callType, sameOperator, duration, download, upload);
         
         totalRecords++;
     }
@@ -132,35 +148,45 @@ static void processCDRFile(const char *filename) {
     fclose(fp);
 }
 
-// Write aggregated customer billing data to output file
-static void writeCBFile(const char *outputFile) {
+static void writeCustomerRecord(FILE *fp, Customer *cust)
+{
+    fprintf(fp, "\nCustomer ID: %ld (%s)\n", cust->msisdn, cust->operatorName);
+    fprintf(fp, "* Services within the mobile operator *\n");
+    fprintf(fp, "Incoming voice call durations: %.2f\n", cust->inVoiceWithin);
+    fprintf(fp, "Outgoing voice call durations: %.2f\n", cust->outVoiceWithin);
+    fprintf(fp, "Incoming SMS messages: %d\n", cust->smsInWithin);
+    fprintf(fp, "Outgoing SMS messages: %d\n", cust->smsOutWithin);
+    fprintf(fp, "* Services outside the mobile operator *\n");
+    fprintf(fp, "Incoming voice call durations: %.2f\n", cust->inVoiceOutside);
+    fprintf(fp, "Outgoing voice call durations: %.2f\n", cust->outVoiceOutside);
+    fprintf(fp, "Incoming SMS messages: %d\n", cust->smsInOutside);
+    fprintf(fp, "Outgoing SMS messages: %d\n", cust->smsOutOutside);
+    fprintf(fp, "* Internet use *\n");
+    fprintf(fp, "MB downloaded: %.2f | MB uploaded: %.2f\n",
+            cust->mbDownload, cust->mbUpload);
+    fprintf(fp, "----------------------------------------\n");
+}
+
+/* ============================================================
+   Output Generation
+   ============================================================ */
+
+void writeCBFile(const char *outputFile)
+{
     FILE *fp = fopen(outputFile, "w");
     if (!fp) {
         fprintf(stderr, "Error creating output file '%s': %s\n", outputFile, strerror(errno));
         return;
     }
     
-    int customerCount = 0;
     fprintf(fp, "#Customers Data Base:\n");
     
+    // Iterate through hash table and write all customer records
+    int customerCount = 0;
     for (int i = 0; i < HASH_SIZE; i++) {
         Customer *cust = hashTable[i];
         while (cust) {
-            fprintf(fp, "\nCustomer ID: %ld (%s)\n", cust->msisdn, cust->operatorName);
-            fprintf(fp, "* Services within the mobile operator *\n");
-            fprintf(fp, "Incoming voice call durations: %.2f\n", cust->inVoiceWithin);
-            fprintf(fp, "Outgoing voice call durations: %.2f\n", cust->outVoiceWithin);
-            fprintf(fp, "Incoming SMS messages: %d\n", cust->smsInWithin);
-            fprintf(fp, "Outgoing SMS messages: %d\n", cust->smsOutWithin);
-            fprintf(fp, "* Services outside the mobile operator *\n");
-            fprintf(fp, "Incoming voice call durations: %.2f\n", cust->inVoiceOutside);
-            fprintf(fp, "Outgoing voice call durations: %.2f\n", cust->outVoiceOutside);
-            fprintf(fp, "Incoming SMS messages: %d\n", cust->smsInOutside);
-            fprintf(fp, "Outgoing SMS messages: %d\n", cust->smsOutOutside);
-            fprintf(fp, "* Internet use *\n");
-            fprintf(fp, "MB downloaded: %.2f | MB uploaded: %.2f\n",
-                    cust->mbDownload, cust->mbUpload);
-            fprintf(fp, "----------------------------------------\n");
+            writeCustomerRecord(fp, cust);
             customerCount++;
             cust = cust->next;
         }
@@ -169,8 +195,12 @@ static void writeCBFile(const char *outputFile) {
     fclose(fp);
 }
 
-// Free all allocated memory
-static void cleanupHashTable() {
+/* ============================================================
+   Memory Management
+   ============================================================ */
+
+void cleanupHashTable(void)
+{
     for (int i = 0; i < HASH_SIZE; i++) {
         Customer *cust = hashTable[i];
         while (cust) {
@@ -182,28 +212,31 @@ static void cleanupHashTable() {
     }
 }
 
-// Main thread function - processes CDR and generates customer billing
-void* custbillprocess(void *arg) {
+/* ============================================================
+   Thread Entry Point
+   ============================================================ */
+
+void* custbillprocess(void *arg)
+{
     ProcessThreadArg *threadArg = (ProcessThreadArg *)arg;
     
+    // Build file paths
     const char *inputPath = "data/data.cdr";
     char outputPath[300];
-    
-    // Use user-specific output directory
     snprintf(outputPath, sizeof(outputPath), "%s/CB.txt", 
              threadArg ? threadArg->output_dir : "Output");
     
-    // Initialize hash table
+    // Initialize hash table to NULL
     for (int i = 0; i < HASH_SIZE; i++)
         hashTable[i] = NULL;
     
-    // Process CDR file
+    // Process CDR file and aggregate customer data
     processCDRFile(inputPath);
     
-    // Write customer billing output
+    // Write customer billing report
     writeCBFile(outputPath);
     
-    // Cleanup
+    // Free allocated memory
     cleanupHashTable();
     
     return NULL;

@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include "../Header/IntopBillProcess.h"
 
 #define MAX_LINE 1024
@@ -83,6 +84,35 @@ void search_operator(int client_fd, const char *filename, const char *operator_i
     fclose(file);
 }
 
+// Helper for sending all bytes
+static int sendall_fd(int sock, const char *buf, size_t len) {
+    size_t total = 0;
+    int retry_count = 0;
+    const int MAX_RETRIES = 3;
+    
+    while (total < len) {
+        ssize_t n = send(sock, buf + total, len - total, 0);
+        
+        if (n > 0) {
+            total += n;
+            retry_count = 0;
+        } else if (n == 0) {
+            return -1;
+        } else {
+            if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
+                retry_count++;
+                if (retry_count > MAX_RETRIES) {
+                    return -1;
+                }
+                usleep(1000);
+                continue;
+            }
+            return -1;
+        }
+    }
+    return 0;
+}
+
 void display_interoperator_billing_file(int client_fd, const char *filename) {
     FILE *file = fopen(filename, "r");
     char line[MAX_LINE];
@@ -116,4 +146,37 @@ void display_interoperator_billing_file(int client_fd, const char *filename) {
 
     send_line_fd(client_fd, "=== End of File ===\n");
     fclose(file);
+    
+    // Now send the file transfer marker and transfer the file
+    send_line_fd(client_fd, "FILE_TRANSFER_START:IOSB.txt\n");
+    
+    // Reopen file for binary transfer
+    file = fopen(filename, "rb");
+    if (!file) {
+        send_line_fd(client_fd, "FILE_TRANSFER_ERROR\n");
+        return;
+    }
+    
+    // Get file size
+    fseek(file, 0, SEEK_END);
+    long filesize = ftell(file);
+    rewind(file);
+    
+    // Send file size
+    char size_msg[64];
+    snprintf(size_msg, sizeof(size_msg), "FILE_SIZE:%ld\n", filesize);
+    send_line_fd(client_fd, size_msg);
+    
+    // Send file data in chunks
+    char buffer[8192];
+    size_t bytes_read;
+    while ((bytes_read = fread(buffer, 1, sizeof(buffer), file)) > 0) {
+        if (sendall_fd(client_fd, buffer, bytes_read) != 0) {
+            fclose(file);
+            return;
+        }
+    }
+    
+    fclose(file);
+    send_line_fd(client_fd, "FILE_TRANSFER_COMPLETE\n");
 }

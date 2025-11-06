@@ -48,4 +48,16 @@ void InteroperatorBillingProcess(const char *input_path, const char *output_path
 void search_operator(int client_fd, const char *filename, const char *operator_name);
 void display_interoperator_billing_file(int client_fd, const char *filename);
 
+// Hash map operations
+unsigned long str_hash(const char *s);
+OpNode* get_or_create_opnode(const char *operator_id, const char *operator_name);
+
+// Utility functions
+void chomp(char *s);
+int split_pipe(char *line, char **tokens, int max_tokens);
+long to_long_or_zero(const char *s);
+
+// Line processing
+void process_line(char *line);
+
 #endif // INTOPBILLPROCESS_H

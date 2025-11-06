@@ -70,8 +70,89 @@ int main(int argc, char **argv) {
             perror("recv");
             break;
         }
+        
+        // Check for file transfer marker
+        if (strncmp(buf, "FILE_TRANSFER_START:", 20) == 0) {
+            char *filename = buf + 20; // Get filename after marker
+            printf("📥 Receiving file: %s\n", filename);
+            fflush(stdout);
+            
+            // Read file size
+            r = recv_line(sockfd, buf, sizeof(buf));
+            if (r <= 0 || strncmp(buf, "FILE_SIZE:", 10) != 0) {
+                printf("❌ Error receiving file size\n");
+                break;
+            }
+            
+            long filesize = atol(buf + 10);
+            printf("📊 File size: %ld bytes (%.2f MB)\n", filesize, (double)filesize / (1024.0 * 1024.0));
+            fflush(stdout);
+            
+            // Open file for writing
+            FILE *outfile = fopen(filename, "wb");
+            if (!outfile) {
+                printf("❌ Error: Cannot create file %s\n", filename);
+                // Read and discard the data
+                char discard[8192];
+                long remaining = filesize;
+                while (remaining > 0) {
+                    size_t to_read = (remaining > sizeof(discard)) ? sizeof(discard) : remaining;
+                    ssize_t n = recv(sockfd, discard, to_read, 0);
+                    if (n <= 0) break;
+                    remaining -= n;
+                }
+                continue;
+            }
+            
+            // Receive file data
+            long received = 0;
+            char filebuf[8192];
+            int last_percent = -1;
+            
+            while (received < filesize) {
+                size_t to_receive = filesize - received;
+                if (to_receive > sizeof(filebuf)) to_receive = sizeof(filebuf);
+                
+                ssize_t n = recv(sockfd, filebuf, to_receive, 0);
+                if (n <= 0) {
+                    printf("\n❌ Error receiving file data\n");
+                    fclose(outfile);
+                    break;
+                }
+                
+                fwrite(filebuf, 1, n, outfile);
+                received += n;
+                
+                // Show progress
+                int percent = (int)((received * 100) / filesize);
+                if (percent != last_percent && percent % 10 == 0) {
+                    printf("⏳ Progress: %d%%\n", percent);
+                    fflush(stdout);
+                    last_percent = percent;
+                }
+            }
+            
+            fclose(outfile);
+            
+            if (received == filesize) {
+                printf("✅ File saved successfully: %s\n", filename);
+            } else {
+                printf("⚠️ File transfer incomplete: received %ld of %ld bytes\n", received, filesize);
+            }
+            fflush(stdout);
+            
+            // Read completion marker
+            r = recv_line(sockfd, buf, sizeof(buf));
+            if (r > 0 && strcmp(buf, "FILE_TRANSFER_COMPLETE") == 0) {
+                printf("✨ Transfer completed!\n\n");
+            }
+            fflush(stdout);
+            continue;
+        }
+        
         // print server line
         printf("%s\n", buf);
+        fflush(stdout);
         // if the server asks for input (choice or credentials)
             if (strstr(buf, "Enter choice") != NULL || 
                 strstr(buf, "Enter email") != NULL || 
