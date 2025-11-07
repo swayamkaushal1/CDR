@@ -246,7 +246,8 @@ void handle_client(int client_fd) {
             send_line(client_fd, "1) Search by msisdn no");
             send_line(client_fd, "2) Print file content of CB.txt");
             send_line(client_fd, "3) Back");
-            send_line(client_fd, "Enter choice (1-3):");
+            send_line(client_fd, "4) Exit");
+            send_line(client_fd, "Enter choice (1-4):");
             if (recv_line(client_fd, buf, sizeof(buf)) <= 0) break;
             if (strcmp(buf, "1") == 0) {
                 log_menu_choice(logged_in_user, "CUSTOMER BILLING", "Search by MSISDN");
@@ -271,10 +272,10 @@ void handle_client(int client_fd) {
                     search_msisdn(client_fd, cb_path, msisdn);
                     log_search_event(logged_in_user, "MSISDN", search_val, 1);
                 }
-                // After search, disconnect client as per requirement
+                // After search, return to secondary menu
                 log_file_operation(logged_in_user, "CB.txt", "Search Completed");
-                send_line(client_fd, "Operation completed. Disconnecting...");
-                connected = 0; // disconnect client, server continues
+                send_line(client_fd, "Operation completed. Returning to secondary menu...");
+                state = SECOND; // Return to secondary menu
             } else if (strcmp(buf, "2") == 0) {
                 log_menu_choice(logged_in_user, "CUSTOMER BILLING", "Print CB.txt");
                 
@@ -284,12 +285,17 @@ void handle_client(int client_fd) {
                 display_customer_billing_file(client_fd, cb_path);
                 
                 log_file_operation(logged_in_user, "CB.txt", "File Sent to Client");
-                // After displaying, disconnect client as per requirement
-                send_line(client_fd, "Operation completed. Disconnecting...");
-                connected = 0; // disconnect client, server continues
+                // After displaying, return to secondary menu
+                send_line(client_fd, "Operation completed. Returning to secondary menu...");
+                state = SECOND; // Return to secondary menu
             } else if (strcmp(buf, "3") == 0) {
                 log_menu_choice(logged_in_user, "CUSTOMER BILLING", "Back");
                 state = BILLING;
+            } else if (strcmp(buf, "4") == 0) {
+                log_menu_choice(logged_in_user, "CUSTOMER BILLING", "Exit");
+                LOG_INFO("Client requested exit from customer billing menu");
+                send_line(client_fd, "Goodbye. Closing connection.");
+                connected = 0; // disconnect client, server continues
             } else {
                 LOG_DEBUG("Invalid customer billing choice: %s", buf);
                 send_line(client_fd, "Invalid choice. Try again.");
@@ -299,7 +305,8 @@ void handle_client(int client_fd) {
             send_line(client_fd, "1) Search by operator name");
             send_line(client_fd, "2) Print file content of IOSB.txt");
             send_line(client_fd, "3) Back");
-            send_line(client_fd, "Enter choice (1-3):");
+                send_line(client_fd, "4) Exit");
+                send_line(client_fd, "Enter choice (1-4):");
             if (recv_line(client_fd, buf, sizeof(buf)) <= 0) break;
             if (strcmp(buf, "1") == 0) {
                 log_menu_choice(logged_in_user, "INTEROP BILLING", "Search by Operator");
@@ -319,10 +326,10 @@ void handle_client(int client_fd) {
                     
                     log_search_event(logged_in_user, "Operator", buf, 1);
                 }
-                // After search, disconnect client as per requirement
+                    // After search, return to secondary menu
                 log_file_operation(logged_in_user, "IOSB.txt", "Search Completed");
-                send_line(client_fd, "Operation completed. Disconnecting...");
-                connected = 0; // disconnect client, server continues
+                    send_line(client_fd, "Operation completed. Returning to secondary menu...");
+                    state = SECOND; // Return to secondary menu
             } else if (strcmp(buf, "2") == 0) {
                 log_menu_choice(logged_in_user, "INTEROP BILLING", "Print IOSB.txt");
                 
@@ -332,12 +339,17 @@ void handle_client(int client_fd) {
                 display_interoperator_billing_file(client_fd, iosb_path);
                 
                 log_file_operation(logged_in_user, "IOSB.txt", "File Sent to Client");
-                // After displaying, disconnect client as per requirement
-                send_line(client_fd, "Operation completed. Disconnecting...");
-                connected = 0; // disconnect client, server continues
+                    // After displaying, return to secondary menu
+                    send_line(client_fd, "Operation completed. Returning to secondary menu...");
+                    state = SECOND; // Return to secondary menu
             } else if (strcmp(buf, "3") == 0) {
                 log_menu_choice(logged_in_user, "INTEROP BILLING", "Back");
                 state = BILLING;
+                } else if (strcmp(buf, "4") == 0) {
+                    log_menu_choice(logged_in_user, "INTEROP BILLING", "Exit");
+                    LOG_INFO("Client requested exit from interoperator billing menu");
+                    send_line(client_fd, "Goodbye. Closing connection.");
+                    connected = 0; // disconnect client, server continues
             } else {
                 LOG_DEBUG("Invalid interop billing choice: %s", buf);
                 send_line(client_fd, "Invalid choice. Try again.");
